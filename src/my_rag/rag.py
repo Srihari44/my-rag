@@ -5,8 +5,9 @@ from langchain_openrouter import ChatOpenRouter
 
 from my_rag.loader import load_doc_chunks
 
-llm = ChatOpenRouter(model="openrouter/free", temperature=0.8)
-
+llm = ChatOpenRouter(
+    model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", temperature=0.8
+)
 
 def format_docs_with_sources(docs):
     formatted = []
@@ -15,12 +16,10 @@ def format_docs_with_sources(docs):
         formatted.append(f"[{i+1}] {source}:\n{doc.page_content}")
     return "\n\n".join(formatted)
 
-
 def main_rag():
-    vectorstore = load_doc_chunks()
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+    retriever = load_doc_chunks()
     prompt = ChatPromptTemplate.from_template("""
-Answer the question based on the context below. Include which sources you used. If the answer is not in the context, respond with: "I don't have information about that in my knowledge base."
+Answer the question based on the context below. If the answer is not in the context, respond with: "I don't have information about that in my knowledge base."
 
 Context:
 {context}
