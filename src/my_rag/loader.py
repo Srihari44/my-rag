@@ -1,19 +1,22 @@
 import os
+import hashlib
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_chroma import Chroma
+from langchain_postgres import PGVector
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
-from langchain_community.retrievers import BM25Retriever
-from langchain_classic.retrievers import EnsembleRetriever
+from pydantic import SecretStr
 
 embeddings = OpenAIEmbeddings(
     model="nvidia/nemotron-3-embed-1b:free",
-    api_key=os.environ.get("OPENROUTER_API_KEY"),
+    api_key=SecretStr(os.environ.get("OPENROUTER_API_KEY") or ""),
     base_url="https://openrouter.ai/api/v1",
     model_kwargs={"encoding_format": "float"},
     # Crucial flags to prevent schema mismatch errors with non-OpenAI models
     check_embedding_ctx_length=False,
 )
+
+connection = "postgresql+psycopg://postgres@localhost:5432/rag_dev"  # Uses psycopg3!
+collection_name = "my_docs"
 
 
 def load_doc_chunks():
@@ -21,12 +24,21 @@ def load_doc_chunks():
     docs = loader.load()
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     chunks = splitter.split_documents(docs)
-    vector_store = Chroma.from_documents(
-        documents=chunks, persist_directory="./chroma_db", embedding=embeddings
+
+    # Generate deterministic IDs based on content + page to enable upsert
+    for chunk in chunks:
+        content = chunk.page_content
+        source = chunk.metadata.get("source", "")
+        page = chunk.metadata.get("page", 0)
+        id_str = f"{source}_{page}_{content[:100]}"
+        chunk.id = hashlib.md5(id_str.encode()).hexdigest()
+
+    vector_store = PGVector(
+        embeddings=embeddings,
+        collection_name=collection_name,
+        connection=connection,
+        use_jsonb=True,
     )
-    vector_retriever = vector_store.as_retriever(search_kwargs={"k": 3})
-    bm25_retriever = BM25Retriever.from_documents(chunks, k=3)
-    retriever = EnsembleRetriever(
-        retrievers=[vector_retriever, bm25_retriever], weights=[0.5, 0.5]
-    )
+    vector_store.add_documents(chunks)
+    retriever = vector_store.as_retriever(search_kwargs={"k": 3})
     return retriever
