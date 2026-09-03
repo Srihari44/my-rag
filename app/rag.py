@@ -1,3 +1,4 @@
+import logging
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openrouter import ChatOpenRouter
@@ -7,6 +8,8 @@ from langfuse.langchain import CallbackHandler
 
 from .loader import get_retriever
 from .response import RAGResponse
+
+logger = logging.getLogger(__name__)
 
 langfuse_handler = CallbackHandler()
 
@@ -35,6 +38,7 @@ Answer (include sources):""")
 
 
 def format_docs_with_sources(docs: List[Document]) -> str:
+    logger.info("Retrieved %d documents for context", len(docs))
     formatted = []
     for i, doc in enumerate(docs):
         source = doc.metadata.get("source", "unknown")
@@ -55,7 +59,9 @@ def build_rag_chain():
 
 
 def answer_query(query: str) -> RAGResponse:
+    logger.info("Building RAG chain for query: %r", query)
     rag_chain = build_rag_chain()
     result = rag_chain.invoke(query, config={"callbacks": [langfuse_handler]})
+    logger.info("RAG chain produced a response for query: %r", query)
     return result if isinstance(result, RAGResponse) else RAGResponse.model_validate(result)
 
