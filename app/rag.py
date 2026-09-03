@@ -5,8 +5,8 @@ from typing import List
 from langchain_core.documents import Document
 from langfuse.langchain import CallbackHandler
 
-from my_rag.loader import load_doc_chunks
-from my_rag.response import RAGResponse
+from .loader import get_retriever
+from .response import RAGResponse
 
 langfuse_handler = CallbackHandler()
 
@@ -15,18 +15,7 @@ llm = ChatOpenRouter(
 )
 model = llm.with_structured_output(RAGResponse).with_retry(stop_after_attempt=2)
 
-
-def format_docs_with_sources(docs: List[Document]) -> str:
-    formatted = []
-    for i, doc in enumerate(docs):
-        source = doc.metadata.get("source", "unknown")
-        formatted.append(f"[{i+1}] {source}:\n{doc.page_content}")
-    return "\n\n".join(formatted)
-
-
-def main_rag():
-    retriever = load_doc_chunks()
-    prompt = ChatPromptTemplate.from_template("""
+PROMPT = ChatPromptTemplate.from_template("""
 Answer the question using only the provided context.
 
 Do not use your general knowledge.
@@ -44,15 +33,29 @@ Question: {question}
 
 Answer (include sources):""")
 
-    rag_chain = (
+
+def format_docs_with_sources(docs: List[Document]) -> str:
+    formatted = []
+    for i, doc in enumerate(docs):
+        source = doc.metadata.get("source", "unknown")
+        formatted.append(f"[{i+1}] {source}:\n{doc.page_content}")
+    return "\n\n".join(formatted)
+
+
+def build_rag_chain():
+    retriever = get_retriever()
+    return (
         {
             "context": retriever | format_docs_with_sources,
             "question": RunnablePassthrough(),
         }
-        | prompt
+        | PROMPT
         | model
     )
 
-    query = input("Enter your query: ")
-    answer = rag_chain.invoke(query, config={"callbacks": [langfuse_handler]})
-    print(answer)
+
+def answer_query(query: str) -> RAGResponse:
+    rag_chain = build_rag_chain()
+    result = rag_chain.invoke(query, config={"callbacks": [langfuse_handler]})
+    return result if isinstance(result, RAGResponse) else RAGResponse.model_validate(result)
+
