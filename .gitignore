@@ -8,6 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+.env
 
 /chroma_db
-.env
+/data
+.DS_Store

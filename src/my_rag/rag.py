@@ -1,16 +1,19 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
-from langchain_core.output_parsers import StrOutputParser
 from langchain_openrouter import ChatOpenRouter
 from typing import List
 from langchain_core.documents import Document
-from langsmith import traceable
+from langfuse.langchain import CallbackHandler
 
 from my_rag.loader import load_doc_chunks
+from my_rag.response import RAGResponse
+
+langfuse_handler = CallbackHandler()
 
 llm = ChatOpenRouter(
-    model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", temperature=0.8
+    model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", temperature=0.6
 )
+model = llm.with_structured_output(RAGResponse).with_retry(stop_after_attempt=2)
 
 
 def format_docs_with_sources(docs: List[Document]) -> str:
@@ -21,11 +24,18 @@ def format_docs_with_sources(docs: List[Document]) -> str:
     return "\n\n".join(formatted)
 
 
-@traceable
 def main_rag():
     retriever = load_doc_chunks()
     prompt = ChatPromptTemplate.from_template("""
-Answer the question based on the context below. If the answer is not in the context, respond with: "I don't have information about that in my knowledge base."
+Answer the question using only the provided context.
+
+Do not use your general knowledge.
+
+If the answer cannot be found in the provided context,
+respond that the information is not available in the
+provided documents.
+
+Do not make assumptions or invent information.
 
 Context:
 {context}
@@ -40,10 +50,9 @@ Answer (include sources):""")
             "question": RunnablePassthrough(),
         }
         | prompt
-        | llm
-        | StrOutputParser()
+        | model
     )
 
     query = input("Enter your query: ")
-    answer = rag_chain.invoke(query)
-    print(f"Answer: {answer}")
+    answer = rag_chain.invoke(query, config={"callbacks": [langfuse_handler]})
+    print(answer)
